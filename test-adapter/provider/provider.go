@@ -1,28 +1,9 @@
-/*
-Copyright 2017 The Kubernetes Authors.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package provider
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"net/url"
 	"strconv"
 	"time"
 
@@ -49,33 +30,23 @@ const (
 
 type signozProvider struct {
 	defaults.DefaultExternalMetricsProvider
-	client   dynamic.Interface
-	mapper   apimeta.RESTMapper
-	endpoint string
-	apiKey   string
-	http     http.Client
+	client dynamic.Interface
+	mapper apimeta.RESTMapper
+	signoz signozClient
 }
 
 var _ provider.MetricsProvider = &signozProvider{}
 
 func NewSignozProvider(endpoint, apiKey string, client dynamic.Interface, mapper apimeta.RESTMapper) provider.MetricsProvider {
 	return &signozProvider{
-		endpoint: endpoint,
-		apiKey:   apiKey,
-		client:   client,
-		mapper:   mapper,
-		http:     http.Client{Timeout: 10 * time.Second},
+		client: client,
+		mapper: mapper,
+		signoz: signozClient{
+			http:     http.Client{Timeout: 10 * time.Second},
+			endpoint: endpoint,
+			apiKey:   apiKey,
+		},
 	}
-}
-
-type promResponse struct {
-	Status string   `json:"status"`
-	Data   promData `json:"data"`
-}
-
-type promData struct {
-	ResultType string       `json:"resultType"`
-	Result     []promResult `json:"result"`
 }
 
 type promResult struct {
@@ -84,61 +55,22 @@ type promResult struct {
 	Values [][]interface{}   `json:"values"`
 }
 
+type promData struct {
+	ResultType string       `json:"resultType"`
+	Result     []promResult `json:"result"`
+}
+
+type promResponse struct {
+	Status string   `json:"status"`
+	Data   promData `json:"data"`
+}
+
 type seriesValue struct {
 	Labels map[string]string
 	Value  float64
 }
 
-func (p *signozProvider) querySignoz() ([]seriesValue, error) {
-	now := time.Now()
-	u, err := url.Parse(p.endpoint + "/api/v1/query_range")
-	if err != nil {
-		return nil, fmt.Errorf("parsing endpoint URL: %w", err)
-	}
-	q := u.Query()
-	q.Set("query", metricName)
-	// Metrics for DSDEurope are constantly behind about 15m in signoz. idk how to fix this
-	q.Set("start", strconv.FormatInt(now.Add(-30*time.Minute).Unix(), 10))
-	q.Set("end", strconv.FormatInt(now.Unix(), 10))
-	q.Set("step", "60")
-	u.RawQuery = q.Encode()
-
-	klog.V(2).Infof("querying signoz: %s", u.String())
-
-	req, err := http.NewRequest("GET", u.String(), nil)
-	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
-	}
-	if p.apiKey != "" {
-		req.Header.Set("SIGNOZ-API-KEY", p.apiKey)
-	}
-
-	resp, err := p.http.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("querying signoz: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("reading response: %w", err)
-	}
-
-	klog.V(2).Infof("signoz response (%d): %s", resp.StatusCode, string(body))
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("signoz returned %d: %s", resp.StatusCode, string(body))
-	}
-
-	var promResp promResponse
-	if err := json.Unmarshal(body, &promResp); err != nil {
-		return nil, fmt.Errorf("decoding response: %w", err)
-	}
-
-	if promResp.Status != "success" {
-		return nil, fmt.Errorf("query failed with status: %s", promResp.Status)
-	}
-
+func (promResp *promResponse) Series() []seriesValue {
 	var results []seriesValue
 	for _, r := range promResp.Data.Result {
 		var raw string
@@ -160,8 +92,7 @@ func (p *signozProvider) querySignoz() ([]seriesValue, error) {
 		}
 		results = append(results, seriesValue{Labels: r.Metric, Value: v})
 	}
-
-	return results, nil
+	return results
 }
 
 func (p *signozProvider) GetMetricByName(_ context.Context, name types.NamespacedName, info provider.CustomMetricInfo, _ labels.Selector) (*custom_metrics.MetricValue, error) {
@@ -169,7 +100,12 @@ func (p *signozProvider) GetMetricByName(_ context.Context, name types.Namespace
 		return nil, provider.NewMetricNotFoundForError(info.GroupResource, info.Metric, name.Name)
 	}
 
-	series, err := p.querySignoz()
+	series, err := p.signoz.query(signozQueryOptions{
+		Query: metricName,
+		End:   time.Now(),
+		Start: time.Now().Add(-30 * time.Minute),
+		Step:  60,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +147,12 @@ func (p *signozProvider) GetMetricBySelector(_ context.Context, namespace string
 		return &custom_metrics.MetricValueList{}, nil
 	}
 
-	series, err := p.querySignoz()
+	series, err := p.signoz.query(signozQueryOptions{
+		Query: metricName,
+		End:   time.Now(),
+		Start: time.Now().Add(-30 * time.Minute),
+		Step:  60,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -266,29 +207,8 @@ func (p *signozProvider) ListAllMetrics() []provider.CustomMetricInfo {
 }
 
 func (p *signozProvider) GetExternalMetric(_ context.Context, _ string, _ labels.Selector, info provider.ExternalMetricInfo) (*external_metrics.ExternalMetricValueList, error) {
-	if info.Metric != metricName {
-		return &external_metrics.ExternalMetricValueList{}, nil
-	}
-
-	series, err := p.querySignoz()
-	if err != nil {
-		return nil, fmt.Errorf("querying signoz: %w", err)
-	}
-
-	var total float64
-	for _, s := range series {
-		total += s.Value
-	}
-
 	return &external_metrics.ExternalMetricValueList{
-		Items: []external_metrics.ExternalMetricValue{
-			{
-				MetricName:   metricName,
-				MetricLabels: map[string]string{},
-				Timestamp:    metav1.Now(),
-				Value:        *resource.NewMilliQuantity(int64(total*1000), resource.DecimalSI),
-			},
-		},
+		Items: []external_metrics.ExternalMetricValue{},
 	}, nil
 }
 

@@ -44,6 +44,7 @@ func main() {
 
 	cmd.Flags().StringVar(&cmd.SignozEndpoint, "signoz-endpoint", "", "SigNoz query endpoint (e.g. https://signoz.example.com)")
 	cmd.Flags().StringVar(&cmd.SignozAPIKey, "signoz-api-key", "", "SigNoz API key for authentication")
+
 	logs.AddFlags(cmd.Flags())
 	if err := cmd.Flags().Parse(os.Args); err != nil {
 		klog.Fatalf("unable to parse flags: %v", err)
@@ -51,16 +52,15 @@ func main() {
 
 	if cmd.SignozEndpoint == "" {
 		cmd.SignozEndpoint = os.Getenv("SIGNOZ_URL")
+		if cmd.SignozEndpoint == "" {
+			klog.Fatal("--signoz-endpoint or SIGNOZ_URL is required")
+		}
 	}
 	if cmd.SignozAPIKey == "" {
 		cmd.SignozAPIKey = os.Getenv("SIGNOZ_TOKEN")
-	}
-
-	if cmd.SignozEndpoint == "" {
-		klog.Fatal("--signoz-endpoint or SIGNOZ_URL is required")
-	}
-	if cmd.SignozAPIKey == "" {
-		klog.Fatal("--signoz-api-key or SIGNOZ_TOKEN is required")
+		if cmd.SignozAPIKey == "" {
+			klog.Fatal("--signoz-api-key or SIGNOZ_TOKEN is required")
+		}
 	}
 
 	dynClient, err := cmd.DynamicClient()
