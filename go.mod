@@ -1,4 +1,4 @@
-module sigs.k8s.io/custom-metrics-apiserver
+module github.com/brainpodnl/signoz-metrics-adapter
 
 go 1.25.0
 
@@ -6,9 +6,7 @@ toolchain go1.25.6
 
 require (
 	github.com/emicklei/go-restful/v3 v3.13.0
-	github.com/google/addlicense v1.2.0
 	github.com/spf13/pflag v1.0.10
-	github.com/stretchr/testify v1.11.1
 	k8s.io/api v0.35.0
 	k8s.io/apimachinery v0.35.0
 	k8s.io/apiserver v0.35.0
@@ -26,7 +24,6 @@ require (
 	github.com/antlr4-go/antlr/v4 v4.13.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
-	github.com/bmatcuk/doublestar/v4 v4.0.2 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/coreos/go-semver v0.3.1 // indirect

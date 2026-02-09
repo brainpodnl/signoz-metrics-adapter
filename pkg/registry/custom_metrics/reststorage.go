@@ -29,9 +29,9 @@ import (
 	"k8s.io/apiserver/pkg/registry/rest"
 	"k8s.io/metrics/pkg/apis/custom_metrics"
 
-	"sigs.k8s.io/custom-metrics-apiserver/pkg/apiserver/metrics"
-	cm_rest "sigs.k8s.io/custom-metrics-apiserver/pkg/apiserver/registry/rest"
-	"sigs.k8s.io/custom-metrics-apiserver/pkg/provider"
+	"github.com/brainpodnl/signoz-metrics-adapter/pkg/apiserver/metrics"
+	cm_rest "github.com/brainpodnl/signoz-metrics-adapter/pkg/apiserver/registry/rest"
+	"github.com/brainpodnl/signoz-metrics-adapter/pkg/provider"
 )
 
 type REST struct {

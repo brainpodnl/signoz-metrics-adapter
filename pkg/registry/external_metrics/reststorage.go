@@ -27,8 +27,8 @@ import (
 	"k8s.io/apiserver/pkg/registry/rest"
 	"k8s.io/metrics/pkg/apis/external_metrics"
 
-	"sigs.k8s.io/custom-metrics-apiserver/pkg/apiserver/metrics"
-	"sigs.k8s.io/custom-metrics-apiserver/pkg/provider"
+	"github.com/brainpodnl/signoz-metrics-adapter/pkg/apiserver/metrics"
+	"github.com/brainpodnl/signoz-metrics-adapter/pkg/provider"
 )
 
 // REST is a wrapper for CustomMetricsProvider that provides implementation for Storage and Lister

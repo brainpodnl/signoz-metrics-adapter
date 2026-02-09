@@ -36,13 +36,13 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	openapicommon "k8s.io/kube-openapi/pkg/common"
 
-	"sigs.k8s.io/custom-metrics-apiserver/pkg/apiserver"
-	"sigs.k8s.io/custom-metrics-apiserver/pkg/cmd/options"
-	"sigs.k8s.io/custom-metrics-apiserver/pkg/dynamicmapper"
-	generatedcore "sigs.k8s.io/custom-metrics-apiserver/pkg/generated/openapi/core"
-	generatedcustommetrics "sigs.k8s.io/custom-metrics-apiserver/pkg/generated/openapi/custommetrics"
-	generatedexternalmetrics "sigs.k8s.io/custom-metrics-apiserver/pkg/generated/openapi/externalmetrics"
-	"sigs.k8s.io/custom-metrics-apiserver/pkg/provider"
+	"github.com/brainpodnl/signoz-metrics-adapter/pkg/apiserver"
+	"github.com/brainpodnl/signoz-metrics-adapter/pkg/cmd/options"
+	"github.com/brainpodnl/signoz-metrics-adapter/pkg/dynamicmapper"
+	generatedcore "github.com/brainpodnl/signoz-metrics-adapter/pkg/generated/openapi/core"
+	generatedcustommetrics "github.com/brainpodnl/signoz-metrics-adapter/pkg/generated/openapi/custommetrics"
+	generatedexternalmetrics "github.com/brainpodnl/signoz-metrics-adapter/pkg/generated/openapi/externalmetrics"
+	"github.com/brainpodnl/signoz-metrics-adapter/pkg/provider"
 )
 
 // AdapterBase provides a base set of functionality for any custom metrics adapter.

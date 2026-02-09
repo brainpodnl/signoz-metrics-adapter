@@ -18,7 +18,7 @@ limitations under the License.
 package defaults
 
 import (
-	"sigs.k8s.io/custom-metrics-apiserver/pkg/provider"
+	"github.com/brainpodnl/signoz-metrics-adapter/pkg/provider"
 )
 
 type DefaultExternalMetricsProvider struct{}

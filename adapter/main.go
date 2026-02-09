@@ -25,9 +25,9 @@ import (
 	"k8s.io/component-base/metrics/legacyregistry"
 	"k8s.io/klog/v2"
 
-	"sigs.k8s.io/custom-metrics-apiserver/pkg/apiserver/metrics"
-	basecmd "sigs.k8s.io/custom-metrics-apiserver/pkg/cmd"
-	signozprov "sigs.k8s.io/custom-metrics-apiserver/test-adapter/provider"
+	"github.com/brainpodnl/signoz-metrics-adapter/pkg/apiserver/metrics"
+	basecmd "github.com/brainpodnl/signoz-metrics-adapter/pkg/cmd"
+	signozprov "github.com/brainpodnl/signoz-metrics-adapter/adapter/provider"
 )
 
 type SignozAdapter struct {

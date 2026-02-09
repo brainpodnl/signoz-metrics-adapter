@@ -18,9 +18,9 @@ import (
 	"k8s.io/metrics/pkg/apis/custom_metrics"
 	"k8s.io/metrics/pkg/apis/external_metrics"
 
-	"sigs.k8s.io/custom-metrics-apiserver/pkg/provider"
-	"sigs.k8s.io/custom-metrics-apiserver/pkg/provider/defaults"
-	"sigs.k8s.io/custom-metrics-apiserver/pkg/provider/helpers"
+	"github.com/brainpodnl/signoz-metrics-adapter/pkg/provider"
+	"github.com/brainpodnl/signoz-metrics-adapter/pkg/provider/defaults"
+	"github.com/brainpodnl/signoz-metrics-adapter/pkg/provider/helpers"
 )
 
 const (

@@ -17,7 +17,7 @@
   };
 in
   buildGoModule {
-    pname = "test-adapter";
+    pname = "signoz-metrics-adapter";
     version = "0.0.0-dev";
 
     src = filter {
@@ -27,13 +27,13 @@ in
         ./go.sum
         ./pkg
         ./hack
-        ./test-adapter
+        ./adapter
       ];
     };
 
-    vendorHash = "sha256-yF159DawYKxuz75W4q69dI60e5DE3TFzNg7zHipXX80=";
+    vendorHash = "sha256-MiFnK1aaS6zmyS4Sav3jA1b6+KDprOOhvtmcA1zFdx0=";
 
-    subPackages = ["test-adapter"];
+    subPackages = ["adapter"];
 
     env = {
       CGO_ENABLED = "0";

@@ -33,7 +33,7 @@ import (
 	"k8s.io/apiserver/pkg/endpoints/request"
 	utiltrace "k8s.io/utils/trace"
 
-	cm_rest "sigs.k8s.io/custom-metrics-apiserver/pkg/apiserver/registry/rest"
+	cm_rest "github.com/brainpodnl/signoz-metrics-adapter/pkg/apiserver/registry/rest"
 )
 
 func ListResourceWithOptions(r cm_rest.ListerWithOptions, scope handlers.RequestScope) http.HandlerFunc {

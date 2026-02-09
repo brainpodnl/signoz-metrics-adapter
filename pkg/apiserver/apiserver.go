@@ -28,8 +28,8 @@ import (
 	cminstall "k8s.io/metrics/pkg/apis/custom_metrics/install"
 	eminstall "k8s.io/metrics/pkg/apis/external_metrics/install"
 
-	"sigs.k8s.io/custom-metrics-apiserver/pkg/apiserver/installer"
-	"sigs.k8s.io/custom-metrics-apiserver/pkg/provider"
+	"github.com/brainpodnl/signoz-metrics-adapter/pkg/apiserver/installer"
+	"github.com/brainpodnl/signoz-metrics-adapter/pkg/provider"
 )
 
 var (

@@ -34,8 +34,8 @@ import (
 	"k8s.io/apiserver/pkg/endpoints/handlers/negotiation"
 	"k8s.io/apiserver/pkg/registry/rest"
 
-	cm_handlers "sigs.k8s.io/custom-metrics-apiserver/pkg/apiserver/endpoints/handlers"
-	cm_rest "sigs.k8s.io/custom-metrics-apiserver/pkg/apiserver/registry/rest"
+	cm_handlers "github.com/brainpodnl/signoz-metrics-adapter/pkg/apiserver/endpoints/handlers"
+	cm_rest "github.com/brainpodnl/signoz-metrics-adapter/pkg/apiserver/registry/rest"
 )
 
 // NB: the contents of this file should mostly be a subset of the functionality

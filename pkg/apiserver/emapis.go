@@ -26,9 +26,9 @@ import (
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	"k8s.io/metrics/pkg/apis/external_metrics"
 
-	specificapi "sigs.k8s.io/custom-metrics-apiserver/pkg/apiserver/installer"
-	"sigs.k8s.io/custom-metrics-apiserver/pkg/provider"
-	metricstorage "sigs.k8s.io/custom-metrics-apiserver/pkg/registry/external_metrics"
+	specificapi "github.com/brainpodnl/signoz-metrics-adapter/pkg/apiserver/installer"
+	"github.com/brainpodnl/signoz-metrics-adapter/pkg/provider"
+	metricstorage "github.com/brainpodnl/signoz-metrics-adapter/pkg/registry/external_metrics"
 )
 
 // InstallExternalMetricsAPI registers the api server in Kube Aggregator

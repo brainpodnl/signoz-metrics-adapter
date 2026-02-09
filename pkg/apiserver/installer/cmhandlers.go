@@ -26,7 +26,7 @@ import (
 	"k8s.io/apiserver/pkg/endpoints/handlers/negotiation"
 	"k8s.io/apiserver/pkg/endpoints/metrics"
 
-	"sigs.k8s.io/custom-metrics-apiserver/pkg/apiserver/registry/rest"
+	"github.com/brainpodnl/signoz-metrics-adapter/pkg/apiserver/registry/rest"
 )
 
 type CMHandlers struct{}

@@ -20,7 +20,7 @@ spec:
           image: {{ $.Values.steiger.adapter.image }}
           imagePullPolicy: IfNotPresent
           args:
-            - /bin/test-adapter
+            - /bin/signoz-metrics-adapter
             - --secure-port=6443
             - --v={{ default 2 .Values.verbosity }}
             - --cert-dir=/var/run/serving-cert
