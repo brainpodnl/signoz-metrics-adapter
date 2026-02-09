@@ -18,74 +18,70 @@ package main
 
 import (
 	"context"
-	"net/http"
 	"os"
-	"time"
 
-	"github.com/emicklei/go-restful/v3"
 	"k8s.io/component-base/logs"
 	"k8s.io/component-base/metrics/legacyregistry"
 	"k8s.io/klog/v2"
 
 	"sigs.k8s.io/custom-metrics-apiserver/pkg/apiserver/metrics"
 	basecmd "sigs.k8s.io/custom-metrics-apiserver/pkg/cmd"
-	"sigs.k8s.io/custom-metrics-apiserver/pkg/provider"
-	fakeprov "sigs.k8s.io/custom-metrics-apiserver/test-adapter/provider"
+	signozprov "sigs.k8s.io/custom-metrics-apiserver/test-adapter/provider"
 )
 
-type SampleAdapter struct {
+type SignozAdapter struct {
 	basecmd.AdapterBase
-
-	// Message is printed on successful startup
-	Message string
-}
-
-func (a *SampleAdapter) makeProviderOrDie() (provider.MetricsProvider, *restful.WebService) {
-	client, err := a.DynamicClient()
-	if err != nil {
-		klog.Fatalf("unable to construct dynamic client: %v", err)
-	}
-
-	mapper, err := a.RESTMapper()
-	if err != nil {
-		klog.Fatalf("unable to construct discovery REST mapper: %v", err)
-	}
-
-	return fakeprov.NewFakeProvider(client, mapper)
+	SignozEndpoint string
+	SignozAPIKey   string
 }
 
 func main() {
 	logs.InitLogs()
 	defer logs.FlushLogs()
 
-	cmd := &SampleAdapter{}
-	cmd.Name = "test-adapter"
+	cmd := &SignozAdapter{}
+	cmd.Name = "signoz-metrics-adapter"
 
-	cmd.Flags().StringVar(&cmd.Message, "msg", "starting adapter...", "startup message")
+	cmd.Flags().StringVar(&cmd.SignozEndpoint, "signoz-endpoint", "", "SigNoz query endpoint (e.g. https://signoz.example.com)")
+	cmd.Flags().StringVar(&cmd.SignozAPIKey, "signoz-api-key", "", "SigNoz API key for authentication")
 	logs.AddFlags(cmd.Flags())
 	if err := cmd.Flags().Parse(os.Args); err != nil {
 		klog.Fatalf("unable to parse flags: %v", err)
 	}
 
-	testProvider, webService := cmd.makeProviderOrDie()
-	cmd.WithCustomMetrics(testProvider)
-	cmd.WithExternalMetrics(testProvider)
+	if cmd.SignozEndpoint == "" {
+		cmd.SignozEndpoint = os.Getenv("SIGNOZ_URL")
+	}
+	if cmd.SignozAPIKey == "" {
+		cmd.SignozAPIKey = os.Getenv("SIGNOZ_TOKEN")
+	}
+
+	if cmd.SignozEndpoint == "" {
+		klog.Fatal("--signoz-endpoint or SIGNOZ_URL is required")
+	}
+	if cmd.SignozAPIKey == "" {
+		klog.Fatal("--signoz-api-key or SIGNOZ_TOKEN is required")
+	}
+
+	dynClient, err := cmd.DynamicClient()
+	if err != nil {
+		klog.Fatalf("unable to construct dynamic client: %v", err)
+	}
+	mapper, err := cmd.RESTMapper()
+	if err != nil {
+		klog.Fatalf("unable to construct REST mapper: %v", err)
+	}
+
+	provider := signozprov.NewSignozProvider(cmd.SignozEndpoint, cmd.SignozAPIKey, dynClient, mapper)
+	cmd.WithCustomMetrics(provider)
+	cmd.WithExternalMetrics(provider)
 
 	if err := metrics.RegisterMetrics(legacyregistry.Register); err != nil {
 		klog.Fatalf("unable to register metrics: %v", err)
 	}
 
-	klog.Infof("%s", cmd.Message)
-	// Set up POST endpoint for writing fake metric values
-	restful.DefaultContainer.Add(webService)
-	go func() {
-		// Open port for POSTing fake metrics
-		server := &http.Server{
-			Addr:              ":8080",
-			ReadHeaderTimeout: 3 * time.Second,
-		}
-		klog.Fatal(server.ListenAndServe())
-	}()
+	klog.Infof("starting signoz metrics adapter, endpoint=%s", cmd.SignozEndpoint)
+
 	if err := cmd.Run(context.Background()); err != nil {
 		klog.Fatalf("unable to run custom metrics adapter: %v", err)
 	}

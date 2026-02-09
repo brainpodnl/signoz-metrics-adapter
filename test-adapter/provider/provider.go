@@ -18,11 +18,14 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
-	"sync"
+	"net/url"
+	"strconv"
+	"time"
 
-	"github.com/emicklei/go-restful/v3"
-	apierr "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,290 +42,258 @@ import (
 	"sigs.k8s.io/custom-metrics-apiserver/pkg/provider/helpers"
 )
 
-// CustomMetricResource wraps provider.CustomMetricInfo in a struct which stores the Name and Namespace of the resource
-// So that we can accurately store and retrieve the metric as if this were an actual metrics server.
-type CustomMetricResource struct {
-	provider.CustomMetricInfo
-	types.NamespacedName
-}
-
-// externalMetric provides examples for metrics which would otherwise be reported from an external source
-// TODO (damemi): add dynamic external metrics instead of just hardcoded examples
-type externalMetric struct {
-	info   provider.ExternalMetricInfo
-	labels map[string]string
-	value  external_metrics.ExternalMetricValue
-}
-
-var (
-	testingExternalMetrics = []externalMetric{
-		{
-			info: provider.ExternalMetricInfo{
-				Metric: "my-external-metric",
-			},
-			labels: map[string]string{"foo": "bar"},
-			value: external_metrics.ExternalMetricValue{
-				MetricName: "my-external-metric",
-				MetricLabels: map[string]string{
-					"foo": "bar",
-				},
-				Value: *resource.NewQuantity(42, resource.DecimalSI),
-			},
-		},
-		{
-			info: provider.ExternalMetricInfo{
-				Metric: "my-external-metric",
-			},
-			labels: map[string]string{"foo": "baz"},
-			value: external_metrics.ExternalMetricValue{
-				MetricName: "my-external-metric",
-				MetricLabels: map[string]string{
-					"foo": "baz",
-				},
-				Value: *resource.NewQuantity(43, resource.DecimalSI),
-			},
-		},
-		{
-			info: provider.ExternalMetricInfo{
-				Metric: "other-external-metric",
-			},
-			labels: map[string]string{},
-			value: external_metrics.ExternalMetricValue{
-				MetricName:   "other-external-metric",
-				MetricLabels: map[string]string{},
-				Value:        *resource.NewQuantity(44, resource.DecimalSI),
-			},
-		},
-	}
+const (
+	metricName  = "phpfpm_active_processes"
+	podLabelKey = "k8s.pod.name"
 )
 
-type metricValue struct {
-	labels    labels.Set
-	value     resource.Quantity
-	timestamp metav1.Time
-}
-
-var _ provider.MetricsProvider = &testingProvider{}
-
-// testingProvider is a sample implementation of provider.MetricsProvider which stores a map of fake metrics
-type testingProvider struct {
-	defaults.DefaultCustomMetricsProvider
+type signozProvider struct {
 	defaults.DefaultExternalMetricsProvider
-	client dynamic.Interface
-	mapper apimeta.RESTMapper
-
-	valuesLock      sync.RWMutex
-	values          map[CustomMetricResource]metricValue
-	externalMetrics []externalMetric
+	client   dynamic.Interface
+	mapper   apimeta.RESTMapper
+	endpoint string
+	apiKey   string
+	http     http.Client
 }
 
-// NewFakeProvider returns an instance of testingProvider, along with its restful.WebService that opens endpoints to post new fake metrics
-func NewFakeProvider(client dynamic.Interface, mapper apimeta.RESTMapper) (provider.MetricsProvider, *restful.WebService) {
-	provider := &testingProvider{
-		client:          client,
-		mapper:          mapper,
-		values:          make(map[CustomMetricResource]metricValue),
-		externalMetrics: testingExternalMetrics,
+var _ provider.MetricsProvider = &signozProvider{}
+
+func NewSignozProvider(endpoint, apiKey string, client dynamic.Interface, mapper apimeta.RESTMapper) provider.MetricsProvider {
+	return &signozProvider{
+		endpoint: endpoint,
+		apiKey:   apiKey,
+		client:   client,
+		mapper:   mapper,
+		http:     http.Client{Timeout: 10 * time.Second},
 	}
-	return provider, provider.webService()
 }
 
-// webService creates a restful.WebService with routes set up for receiving fake metrics
-// These writing routes have been set up to be identical to the format of routes which metrics are read from.
-// There are 3 metric types available: namespaced, root-scoped, and namespaces.
-// (Note: Namespaces, we're assuming, are themselves namespaced resources, but for consistency with how metrics are retreived they have a separate route)
-func (p *testingProvider) webService() *restful.WebService {
-	ws := new(restful.WebService)
-
-	ws.Path("/write-metrics")
-
-	// Namespaced resources
-	ws.Route(ws.POST("/namespaces/{namespace}/{resourceType}/{name}/{metric}").To(p.updateMetric).
-		Param(ws.BodyParameter("value", "value to set metric").DataType("integer").DefaultValue("0")))
-
-	// Root-scoped resources
-	ws.Route(ws.POST("/{resourceType}/{name}/{metric}").To(p.updateMetric).
-		Param(ws.BodyParameter("value", "value to set metric").DataType("integer").DefaultValue("0")))
-
-	// Namespaces, where {resourceType} == "namespaces" to match API
-	ws.Route(ws.POST("/{resourceType}/{name}/metrics/{metric}").To(p.updateMetric).
-		Param(ws.BodyParameter("value", "value to set metric").DataType("integer").DefaultValue("0")))
-	return ws
+type promResponse struct {
+	Status string   `json:"status"`
+	Data   promData `json:"data"`
 }
 
-// updateMetric writes the metric provided by a restful request and stores it in memory
-func (p *testingProvider) updateMetric(request *restful.Request, response *restful.Response) {
-	p.valuesLock.Lock()
-	defer p.valuesLock.Unlock()
+type promData struct {
+	ResultType string       `json:"resultType"`
+	Result     []promResult `json:"result"`
+}
 
-	namespace := request.PathParameter("namespace")
-	resourceType := request.PathParameter("resourceType")
-	namespaced := len(namespace) > 0 || resourceType == "namespaces"
+type promResult struct {
+	Metric map[string]string `json:"metric"`
+	Value  []interface{}     `json:"value"`
+	Values [][]interface{}   `json:"values"`
+}
 
-	name := request.PathParameter("name")
-	metricName := request.PathParameter("metric")
+type seriesValue struct {
+	Labels map[string]string
+	Value  float64
+}
 
-	value := new(resource.Quantity)
-	err := request.ReadEntity(value)
+func (p *signozProvider) querySignoz() ([]seriesValue, error) {
+	now := time.Now()
+	u, err := url.Parse(p.endpoint + "/api/v1/query_range")
 	if err != nil {
-		if err := response.WriteErrorString(http.StatusBadRequest, err.Error()); err != nil {
-			klog.Errorf("Error writing error: %s", err)
-		}
-		return
+		return nil, fmt.Errorf("parsing endpoint URL: %w", err)
+	}
+	q := u.Query()
+	q.Set("query", metricName)
+	// Metrics for DSDEurope are constantly behind about 15m in signoz. idk how to fix this
+	q.Set("start", strconv.FormatInt(now.Add(-30*time.Minute).Unix(), 10))
+	q.Set("end", strconv.FormatInt(now.Unix(), 10))
+	q.Set("step", "60")
+	u.RawQuery = q.Encode()
+
+	klog.V(2).Infof("querying signoz: %s", u.String())
+
+	req, err := http.NewRequest("GET", u.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	if p.apiKey != "" {
+		req.Header.Set("SIGNOZ-API-KEY", p.apiKey)
 	}
 
-	groupResource := schema.ParseGroupResource(resourceType)
+	resp, err := p.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("querying signoz: %w", err)
+	}
+	defer resp.Body.Close()
 
-	metricLabels := labels.Set{}
-	sel := request.QueryParameter("labels")
-	if len(sel) > 0 {
-		metricLabels, err = labels.ConvertSelectorToLabelsMap(sel)
-		if err != nil {
-			if err := response.WriteErrorString(http.StatusBadRequest, err.Error()); err != nil {
-				klog.Errorf("Error writing error: %s", err)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	klog.V(2).Infof("signoz response (%d): %s", resp.StatusCode, string(body))
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("signoz returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var promResp promResponse
+	if err := json.Unmarshal(body, &promResp); err != nil {
+		return nil, fmt.Errorf("decoding response: %w", err)
+	}
+
+	if promResp.Status != "success" {
+		return nil, fmt.Errorf("query failed with status: %s", promResp.Status)
+	}
+
+	var results []seriesValue
+	for _, r := range promResp.Data.Result {
+		var raw string
+		if len(r.Values) > 0 {
+			last := r.Values[len(r.Values)-1]
+			if len(last) >= 2 {
+				raw, _ = last[1].(string)
 			}
-			return
+		} else if len(r.Value) >= 2 {
+			raw, _ = r.Value[1].(string)
+		}
+		if raw == "" {
+			continue
+		}
+		v, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
+			klog.Warningf("skipping non-numeric value %q: %v", raw, err)
+			continue
+		}
+		results = append(results, seriesValue{Labels: r.Metric, Value: v})
+	}
+
+	return results, nil
+}
+
+func (p *signozProvider) GetMetricByName(_ context.Context, name types.NamespacedName, info provider.CustomMetricInfo, _ labels.Selector) (*custom_metrics.MetricValue, error) {
+	if info.Metric != metricName {
+		return nil, provider.NewMetricNotFoundForError(info.GroupResource, info.Metric, name.Name)
+	}
+
+	series, err := p.querySignoz()
+	if err != nil {
+		return nil, err
+	}
+
+	var total float64
+	var found bool
+	for _, s := range series {
+
+		for _, label := range s.Labels {
+			fmt.Printf("label: %s\n", label)
+		}
+
+		if s.Labels[podLabelKey] == name.Name {
+			total += s.Value
+			found = true
+		}
+	}
+	if !found {
+		for _, s := range series {
+			total += s.Value
 		}
 	}
 
-	info := provider.CustomMetricInfo{
-		GroupResource: groupResource,
-		Metric:        metricName,
-		Namespaced:    namespaced,
-	}
-
-	info, _, err = info.Normalized(p.mapper)
-	if err != nil {
-		klog.Errorf("Error normalizing info: %s", err)
-	}
-	namespacedName := types.NamespacedName{
-		Name:      name,
-		Namespace: namespace,
-	}
-
-	metricInfo := CustomMetricResource{
-		CustomMetricInfo: info,
-		NamespacedName:   namespacedName,
-	}
-	p.values[metricInfo] = metricValue{
-		labels:    metricLabels,
-		value:     *value,
-		timestamp: metav1.Now(),
-	}
-}
-
-// valueFor is a helper function to get just the value of a specific metric
-func (p *testingProvider) valueFor(info provider.CustomMetricInfo, name types.NamespacedName, metricSelector labels.Selector) (metricValue, error) {
-	info, _, err := info.Normalized(p.mapper)
-	if err != nil {
-		return metricValue{}, err
-	}
-	metricInfo := CustomMetricResource{
-		CustomMetricInfo: info,
-		NamespacedName:   name,
-	}
-
-	value, found := p.values[metricInfo]
-	if !found {
-		return metricValue{}, provider.NewMetricNotFoundForError(info.GroupResource, info.Metric, name.Name)
-	}
-
-	if !metricSelector.Matches(value.labels) {
-		return metricValue{}, provider.NewMetricNotFoundForSelectorError(info.GroupResource, info.Metric, name.Name, metricSelector)
-	}
-
-	return value, nil
-}
-
-// metricFor is a helper function which formats a value, metric, and object info into a MetricValue which can be returned by the metrics API
-func (p *testingProvider) metricFor(value metricValue, name types.NamespacedName, _ labels.Selector, info provider.CustomMetricInfo, metricSelector labels.Selector) (*custom_metrics.MetricValue, error) {
 	objRef, err := helpers.ReferenceFor(p.mapper, name, info)
 	if err != nil {
 		return nil, err
 	}
 
-	metric := &custom_metrics.MetricValue{
+	return &custom_metrics.MetricValue{
 		DescribedObject: objRef,
-		Metric: custom_metrics.MetricIdentifier{
-			Name: info.Metric,
+		Metric:          custom_metrics.MetricIdentifier{Name: metricName},
+		Timestamp:       metav1.Now(),
+		Value:           *resource.NewMilliQuantity(int64(total*1000), resource.DecimalSI),
+	}, nil
+}
+
+func (p *signozProvider) GetMetricBySelector(_ context.Context, namespace string, selector labels.Selector, info provider.CustomMetricInfo, _ labels.Selector) (*custom_metrics.MetricValueList, error) {
+	if info.Metric != metricName {
+		return &custom_metrics.MetricValueList{}, nil
+	}
+
+	series, err := p.querySignoz()
+	if err != nil {
+		return nil, err
+	}
+
+	podNames, err := helpers.ListObjectNames(p.mapper, p.client, namespace, selector, info)
+	if err != nil {
+		return nil, err
+	}
+
+	klog.V(2).Infof("matched %d pods, got %d series from signoz", len(podNames), len(series))
+
+	byPod := map[string]float64{}
+	for _, s := range series {
+		if pod, ok := s.Labels[podLabelKey]; ok {
+			byPod[pod] += s.Value
+		}
+	}
+
+	var items []custom_metrics.MetricValue
+	for _, podName := range podNames {
+		value, ok := byPod[podName]
+		if !ok {
+			klog.V(2).Infof("no signoz series for pod %s, skipping", podName)
+			continue
+		}
+
+		name := types.NamespacedName{Name: podName, Namespace: namespace}
+		objRef, err := helpers.ReferenceFor(p.mapper, name, info)
+		if err != nil {
+			return nil, err
+		}
+
+		items = append(items, custom_metrics.MetricValue{
+			DescribedObject: objRef,
+			Metric:          custom_metrics.MetricIdentifier{Name: metricName},
+			Timestamp:       metav1.Now(),
+			Value:           *resource.NewMilliQuantity(int64(value*1000), resource.DecimalSI),
+		})
+	}
+
+	return &custom_metrics.MetricValueList{Items: items}, nil
+}
+
+func (p *signozProvider) ListAllMetrics() []provider.CustomMetricInfo {
+	return []provider.CustomMetricInfo{
+		{
+			GroupResource: schema.GroupResource{Group: "", Resource: "pods"},
+			Metric:        metricName,
+			Namespaced:    true,
 		},
-		Timestamp: value.timestamp,
-		Value:     value.value,
 	}
-
-	if len(metricSelector.String()) > 0 {
-		sel, err := metav1.ParseToLabelSelector(metricSelector.String())
-		if err != nil {
-			return nil, err
-		}
-		metric.Metric.Selector = sel
-	}
-
-	return metric, nil
 }
 
-// metricsFor is a wrapper used by GetMetricBySelector to format several metrics which match a resource selector
-func (p *testingProvider) metricsFor(namespace string, selector labels.Selector, info provider.CustomMetricInfo, metricSelector labels.Selector) (*custom_metrics.MetricValueList, error) {
-	names, err := helpers.ListObjectNames(p.mapper, p.client, namespace, selector, info)
+func (p *signozProvider) GetExternalMetric(_ context.Context, _ string, _ labels.Selector, info provider.ExternalMetricInfo) (*external_metrics.ExternalMetricValueList, error) {
+	if info.Metric != metricName {
+		return &external_metrics.ExternalMetricValueList{}, nil
+	}
+
+	series, err := p.querySignoz()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("querying signoz: %w", err)
 	}
 
-	res := make([]custom_metrics.MetricValue, 0, len(names))
-	for _, name := range names {
-		namespacedName := types.NamespacedName{Name: name, Namespace: namespace}
-		value, err := p.valueFor(info, namespacedName, metricSelector)
-		if err != nil {
-			if apierr.IsNotFound(err) {
-				continue
-			}
-			return nil, err
-		}
-
-		metric, err := p.metricFor(value, namespacedName, selector, info, metricSelector)
-		if err != nil {
-			return nil, err
-		}
-		res = append(res, *metric)
+	var total float64
+	for _, s := range series {
+		total += s.Value
 	}
 
-	return &custom_metrics.MetricValueList{
-		Items: res,
-	}, nil
-}
-
-func (p *testingProvider) GetMetricByName(_ context.Context, name types.NamespacedName, info provider.CustomMetricInfo, metricSelector labels.Selector) (*custom_metrics.MetricValue, error) {
-	p.valuesLock.RLock()
-	defer p.valuesLock.RUnlock()
-
-	value, err := p.valueFor(info, name, metricSelector)
-	if err != nil {
-		return nil, err
-	}
-	return p.metricFor(value, name, labels.Everything(), info, metricSelector)
-}
-
-func (p *testingProvider) GetMetricBySelector(_ context.Context, namespace string, selector labels.Selector, info provider.CustomMetricInfo, metricSelector labels.Selector) (*custom_metrics.MetricValueList, error) {
-	p.valuesLock.RLock()
-	defer p.valuesLock.RUnlock()
-
-	return p.metricsFor(namespace, selector, info, metricSelector)
-}
-
-func (p *testingProvider) GetExternalMetric(_ context.Context, _ string, metricSelector labels.Selector, info provider.ExternalMetricInfo) (*external_metrics.ExternalMetricValueList, error) {
-	p.valuesLock.RLock()
-	defer p.valuesLock.RUnlock()
-
-	matchingMetrics := []external_metrics.ExternalMetricValue{}
-	for _, metric := range p.externalMetrics {
-		if metric.info.Metric == info.Metric &&
-			metricSelector.Matches(labels.Set(metric.labels)) {
-			metricValue := metric.value
-			metricValue.Timestamp = metav1.Now()
-			matchingMetrics = append(matchingMetrics, metricValue)
-		}
-	}
 	return &external_metrics.ExternalMetricValueList{
-		Items: matchingMetrics,
+		Items: []external_metrics.ExternalMetricValue{
+			{
+				MetricName:   metricName,
+				MetricLabels: map[string]string{},
+				Timestamp:    metav1.Now(),
+				Value:        *resource.NewMilliQuantity(int64(total*1000), resource.DecimalSI),
+			},
+		},
 	}, nil
+}
+
+func (p *signozProvider) ListAllExternalMetrics() []provider.ExternalMetricInfo {
+	return []provider.ExternalMetricInfo{
+		{Metric: metricName},
+	}
 }

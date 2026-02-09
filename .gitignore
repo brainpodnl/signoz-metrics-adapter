@@ -3,3 +3,6 @@
 _output
 apiserver.local.config/
 .idea/
+.direnv
+result
+result

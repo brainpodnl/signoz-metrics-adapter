@@ -1,0 +1,15 @@
+replicas: 1
+
+imagePullSecrets:
+  - name: github-registry
+
+signoz:
+  existingSecret: "signoz-credentials"
+  secretKeys:
+    url: url
+    token: token
+
+serviceAccount:
+  name: ""
+
+resources: {}

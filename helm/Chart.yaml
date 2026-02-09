@@ -1,0 +1,6 @@
+apiVersion: v2
+name: signoz-metrics-adapter
+description: Custom metrics API server adapter for SigNoz
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

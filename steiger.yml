@@ -1,0 +1,14 @@
+build:
+  services:
+    type: nix
+    platformStrategy: crossSystem
+    packages:
+      adapter: adapter
+
+deploy:
+  adapter:
+    type: helm
+    path: helm
+    namespace: signoz-metric-adapter
+    valuesFiles:
+      - helm/values.yaml

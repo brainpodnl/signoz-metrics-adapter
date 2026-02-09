@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "signoz-metrics-adapter.fullname" . }}
+  labels:
+    {{- include "signoz-metrics-adapter.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "signoz-metrics-adapter.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "signoz-metrics-adapter.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "signoz-metrics-adapter.serviceAccountName" . }}
+      containers:
+        - name: adapter
+          image: {{ $.Values.steiger.adapter.image }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - /bin/test-adapter
+            - --secure-port=6443
+            - --cert-dir=/var/run/serving-cert
+          env:
+            - name: SIGNOZ_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "signoz-metrics-adapter.secretName" . }}
+                  key: {{ .Values.signoz.secretKeys.url }}
+            - name: SIGNOZ_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "signoz-metrics-adapter.secretName" . }}
+                  key: {{ .Values.signoz.secretKeys.token }}
+          ports:
+            - containerPort: 6443
+              name: https
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /tmp
+              name: temp-vol
+            - mountPath: /var/run/serving-cert
+              name: volume-serving-cert
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: temp-vol
+          emptyDir: {}
+        - name: volume-serving-cert
+          emptyDir: {}
+      imagePullSecrets: {{ $.Values.imagePullSecrets | toYaml | nindent 8 }}
