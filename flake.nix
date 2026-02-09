@@ -53,7 +53,10 @@
         name = adapter.pname;
         tag = "latest";
         created = "now";
-        copyToRoot = [adapter];
+        copyToRoot = [
+          adapter
+          pkgs.dockerTools.caCertificates
+        ];
         config.Cmd = ["/bin/${adapter.pname}"];
       };
     });
