@@ -30,17 +30,19 @@ const (
 
 type signozProvider struct {
 	defaults.DefaultExternalMetricsProvider
-	client dynamic.Interface
-	mapper apimeta.RESTMapper
-	signoz signozClient
+	client           dynamic.Interface
+	mapper           apimeta.RESTMapper
+	timeRangeMinutes int64
+	signoz           signozClient
 }
 
 var _ provider.MetricsProvider = &signozProvider{}
 
-func NewSignozProvider(endpoint, apiKey string, client dynamic.Interface, mapper apimeta.RESTMapper) provider.MetricsProvider {
+func NewSignozProvider(endpoint, apiKey string, timeRangeMinutes int64, client dynamic.Interface, mapper apimeta.RESTMapper) provider.MetricsProvider {
 	return &signozProvider{
 		client: client,
 		mapper: mapper,
+		timeRangeMinutes: timeRangeMinutes,
 		signoz: signozClient{
 			http:     http.Client{Timeout: 10 * time.Second},
 			endpoint: endpoint,
@@ -103,7 +105,7 @@ func (p *signozProvider) GetMetricByName(_ context.Context, name types.Namespace
 	series, err := p.signoz.query(signozQueryOptions{
 		Query: metricName,
 		End:   time.Now(),
-		Start: time.Now().Add(-30 * time.Minute),
+		Start: time.Now().Add(-time.Duration(p.timeRangeMinutes) * time.Minute),
 		Step:  60,
 	})
 	if err != nil {
@@ -150,7 +152,7 @@ func (p *signozProvider) GetMetricBySelector(_ context.Context, namespace string
 	series, err := p.signoz.query(signozQueryOptions{
 		Query: metricName,
 		End:   time.Now(),
-		Start: time.Now().Add(-30 * time.Minute),
+		Start: time.Now().Add(-time.Duration(p.timeRangeMinutes) * time.Minute),
 		Step:  60,
 	})
 	if err != nil {

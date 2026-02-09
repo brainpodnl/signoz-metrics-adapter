@@ -4,10 +4,13 @@ imagePullSecrets:
   - name: github-registry
 
 signoz:
+  timeRangeMinutes: 5
   existingSecret: "signoz-credentials"
   secretKeys:
     url: url
     token: token
+
+verbosity: 2
 
 serviceAccount:
   name: ""

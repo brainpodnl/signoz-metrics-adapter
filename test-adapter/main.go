@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"os"
+	"strconv"
 
 	"k8s.io/component-base/logs"
 	"k8s.io/component-base/metrics/legacyregistry"
@@ -31,8 +32,9 @@ import (
 
 type SignozAdapter struct {
 	basecmd.AdapterBase
-	SignozEndpoint string
-	SignozAPIKey   string
+	SignozEndpoint         string
+	SignozAPIKey           string
+	SignozTimerangeMinutes int64
 }
 
 func main() {
@@ -44,6 +46,7 @@ func main() {
 
 	cmd.Flags().StringVar(&cmd.SignozEndpoint, "signoz-endpoint", "", "SigNoz query endpoint (e.g. https://signoz.example.com)")
 	cmd.Flags().StringVar(&cmd.SignozAPIKey, "signoz-api-key", "", "SigNoz API key for authentication")
+	cmd.Flags().Int64Var(&cmd.SignozTimerangeMinutes, "signoz-timerange-minutes", 5, "Time range in minutes to use for signoz queries")
 
 	logs.AddFlags(cmd.Flags())
 	if err := cmd.Flags().Parse(os.Args); err != nil {
@@ -56,11 +59,20 @@ func main() {
 			klog.Fatal("--signoz-endpoint or SIGNOZ_URL is required")
 		}
 	}
+
 	if cmd.SignozAPIKey == "" {
 		cmd.SignozAPIKey = os.Getenv("SIGNOZ_TOKEN")
 		if cmd.SignozAPIKey == "" {
 			klog.Fatal("--signoz-api-key or SIGNOZ_TOKEN is required")
 		}
+	}
+
+	if os.Getenv("SIGNOZ_TIMERANGE_MINUTES") != "" {
+		val, err := strconv.ParseInt(os.Getenv("SIGNOZ_TIMERANGE_MINUTES"), 10, 64)
+		if err != nil {
+			klog.Fatal("invalid value for SIGNOZ_TIMERANGE_MINUTES")
+		}
+		cmd.SignozTimerangeMinutes = val
 	}
 
 	dynClient, err := cmd.DynamicClient()
@@ -72,7 +84,7 @@ func main() {
 		klog.Fatalf("unable to construct REST mapper: %v", err)
 	}
 
-	provider := signozprov.NewSignozProvider(cmd.SignozEndpoint, cmd.SignozAPIKey, dynClient, mapper)
+	provider := signozprov.NewSignozProvider(cmd.SignozEndpoint, cmd.SignozAPIKey, cmd.SignozTimerangeMinutes, dynClient, mapper)
 	cmd.WithCustomMetrics(provider)
 	cmd.WithExternalMetrics(provider)
 
