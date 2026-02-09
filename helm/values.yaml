@@ -5,6 +5,9 @@ imagePullSecrets:
 
 signoz:
   timeRangeMinutes: 5
+  metrics:
+    - phpfpm_active_processes
+  labelFilters: {}
   existingSecret: "signoz-credentials"
   secretKeys:
     url: url

@@ -2,9 +2,10 @@ package provider
 
 import (
 	"context"
-	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -23,10 +24,7 @@ import (
 	"github.com/brainpodnl/signoz-metrics-adapter/pkg/provider/helpers"
 )
 
-const (
-	metricName  = "phpfpm_active_processes"
-	podLabelKey = "k8s.pod.name"
-)
+const podLabelKey = "k8s.pod.name"
 
 type signozProvider struct {
 	defaults.DefaultExternalMetricsProvider
@@ -34,21 +32,50 @@ type signozProvider struct {
 	mapper           apimeta.RESTMapper
 	timeRangeMinutes int64
 	signoz           signozClient
+	metrics          []string
+	labelFilters     map[string]string
 }
 
 var _ provider.MetricsProvider = &signozProvider{}
 
-func NewSignozProvider(endpoint, apiKey string, timeRangeMinutes int64, client dynamic.Interface, mapper apimeta.RESTMapper) provider.MetricsProvider {
+func NewSignozProvider(endpoint, apiKey string, timeRangeMinutes int64, metrics []string, labelFilters map[string]string, client dynamic.Interface, mapper apimeta.RESTMapper) provider.MetricsProvider {
 	return &signozProvider{
-		client: client,
-		mapper: mapper,
+		client:           client,
+		mapper:           mapper,
 		timeRangeMinutes: timeRangeMinutes,
+		metrics:          metrics,
+		labelFilters:     labelFilters,
 		signoz: signozClient{
 			http:     http.Client{Timeout: 10 * time.Second},
 			endpoint: endpoint,
 			apiKey:   apiKey,
 		},
 	}
+}
+
+func (p *signozProvider) isAllowedMetric(name string) bool {
+	for _, m := range p.metrics {
+		if m == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *signozProvider) buildQuery(metric string) string {
+	if len(p.labelFilters) == 0 {
+		return metric
+	}
+	keys := make([]string, 0, len(p.labelFilters))
+	for k := range p.labelFilters {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var selectors []string
+	for _, k := range keys {
+		selectors = append(selectors, k+`="`+p.labelFilters[k]+`"`)
+	}
+	return metric + "{" + strings.Join(selectors, ",") + "}"
 }
 
 type promResult struct {
@@ -98,12 +125,12 @@ func (promResp *promResponse) Series() []seriesValue {
 }
 
 func (p *signozProvider) GetMetricByName(_ context.Context, name types.NamespacedName, info provider.CustomMetricInfo, _ labels.Selector) (*custom_metrics.MetricValue, error) {
-	if info.Metric != metricName {
+	if !p.isAllowedMetric(info.Metric) {
 		return nil, provider.NewMetricNotFoundForError(info.GroupResource, info.Metric, name.Name)
 	}
 
 	series, err := p.signoz.query(signozQueryOptions{
-		Query: metricName,
+		Query: p.buildQuery(info.Metric),
 		End:   time.Now(),
 		Start: time.Now().Add(-time.Duration(p.timeRangeMinutes) * time.Minute),
 		Step:  60,
@@ -115,11 +142,6 @@ func (p *signozProvider) GetMetricByName(_ context.Context, name types.Namespace
 	var total float64
 	var found bool
 	for _, s := range series {
-
-		for _, label := range s.Labels {
-			fmt.Printf("label: %s\n", label)
-		}
-
 		if s.Labels[podLabelKey] == name.Name {
 			total += s.Value
 			found = true
@@ -138,19 +160,19 @@ func (p *signozProvider) GetMetricByName(_ context.Context, name types.Namespace
 
 	return &custom_metrics.MetricValue{
 		DescribedObject: objRef,
-		Metric:          custom_metrics.MetricIdentifier{Name: metricName},
+		Metric:          custom_metrics.MetricIdentifier{Name: info.Metric},
 		Timestamp:       metav1.Now(),
 		Value:           *resource.NewMilliQuantity(int64(total*1000), resource.DecimalSI),
 	}, nil
 }
 
 func (p *signozProvider) GetMetricBySelector(_ context.Context, namespace string, selector labels.Selector, info provider.CustomMetricInfo, _ labels.Selector) (*custom_metrics.MetricValueList, error) {
-	if info.Metric != metricName {
+	if !p.isAllowedMetric(info.Metric) {
 		return &custom_metrics.MetricValueList{}, nil
 	}
 
 	series, err := p.signoz.query(signozQueryOptions{
-		Query: metricName,
+		Query: p.buildQuery(info.Metric),
 		End:   time.Now(),
 		Start: time.Now().Add(-time.Duration(p.timeRangeMinutes) * time.Minute),
 		Step:  60,
@@ -189,7 +211,7 @@ func (p *signozProvider) GetMetricBySelector(_ context.Context, namespace string
 
 		items = append(items, custom_metrics.MetricValue{
 			DescribedObject: objRef,
-			Metric:          custom_metrics.MetricIdentifier{Name: metricName},
+			Metric:          custom_metrics.MetricIdentifier{Name: info.Metric},
 			Timestamp:       metav1.Now(),
 			Value:           *resource.NewMilliQuantity(int64(value*1000), resource.DecimalSI),
 		})
@@ -199,13 +221,15 @@ func (p *signozProvider) GetMetricBySelector(_ context.Context, namespace string
 }
 
 func (p *signozProvider) ListAllMetrics() []provider.CustomMetricInfo {
-	return []provider.CustomMetricInfo{
-		{
+	var infos []provider.CustomMetricInfo
+	for _, m := range p.metrics {
+		infos = append(infos, provider.CustomMetricInfo{
 			GroupResource: schema.GroupResource{Group: "", Resource: "pods"},
-			Metric:        metricName,
+			Metric:        m,
 			Namespaced:    true,
-		},
+		})
 	}
+	return infos
 }
 
 func (p *signozProvider) GetExternalMetric(_ context.Context, _ string, _ labels.Selector, info provider.ExternalMetricInfo) (*external_metrics.ExternalMetricValueList, error) {
@@ -215,7 +239,9 @@ func (p *signozProvider) GetExternalMetric(_ context.Context, _ string, _ labels
 }
 
 func (p *signozProvider) ListAllExternalMetrics() []provider.ExternalMetricInfo {
-	return []provider.ExternalMetricInfo{
-		{Metric: metricName},
+	var infos []provider.ExternalMetricInfo
+	for _, m := range p.metrics {
+		infos = append(infos, provider.ExternalMetricInfo{Metric: m})
 	}
+	return infos
 }

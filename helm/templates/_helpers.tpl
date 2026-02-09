@@ -37,3 +37,11 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "signoz-metrics-adapter.secretName" -}}
 {{- required "signoz.existingSecret is required" .Values.signoz.existingSecret }}
 {{- end }}
+
+{{- define "signoz-metrics-adapter.labelFilters" -}}
+{{- $pairs := list -}}
+{{- range $k, $v := .Values.signoz.labelFilters -}}
+{{- $pairs = append $pairs (printf "%s=%s" $k $v) -}}
+{{- end -}}
+{{- join "," $pairs -}}
+{{- end -}}
