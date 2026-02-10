@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"math"
 	"net/http"
 	"time"
 
@@ -93,8 +94,8 @@ func (p *signozProvider) buildQuery(metricName string) SignozQueryRangeOptions {
 			Aggregations: []SignozMetricAggregation{
 				{
 					MetricName:       metricName,
-					TimeAggregation:  "avg",
-					SpaceAggregation: "avg",
+					TimeAggregation:  "latest",
+					SpaceAggregation: "sum",
 				},
 			},
 			GroupBy: []SignozQueryGroupBy{
@@ -156,7 +157,7 @@ func (p *signozProvider) GetMetricByName(_ context.Context, name types.Namespace
 		DescribedObject: objRef,
 		Metric:          custom_metrics.MetricIdentifier{Name: info.Metric},
 		Timestamp:       metav1.Now(),
-		Value:           *resource.NewMilliQuantity(int64(total*1000), resource.DecimalSI),
+		Value:           *resource.NewQuantity(int64(math.Round(total)), resource.DecimalSI),
 	}, nil
 }
 
@@ -204,7 +205,7 @@ func (p *signozProvider) GetMetricBySelector(_ context.Context, namespace string
 			DescribedObject: objRef,
 			Metric:          custom_metrics.MetricIdentifier{Name: info.Metric},
 			Timestamp:       metav1.Now(),
-			Value:           *resource.NewMilliQuantity(int64(value*1000), resource.DecimalSI),
+			Value:           *resource.NewQuantity(int64(math.Round(value)), resource.DecimalSI),
 		})
 	}
 
