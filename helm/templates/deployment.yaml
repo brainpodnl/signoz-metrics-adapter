@@ -39,9 +39,9 @@ spec:
               value: "{{ .Values.signoz.timeRangeMinutes }}"
             - name: SIGNOZ_METRICS
               value: "{{ join "," .Values.signoz.metrics }}"
-            {{- if .Values.signoz.labelFilters }}
-            - name: SIGNOZ_LABEL_FILTERS
-              value: {{ include "signoz-metrics-adapter.labelFilters" . | quote }}
+            {{- if .Values.signoz.filterExpression }}
+            - name: SIGNOZ_FILTER_EXPRESSION
+              value: {{ .Values.signoz.filterExpression }}
             {{- end }}
           ports:
             - containerPort: 6443

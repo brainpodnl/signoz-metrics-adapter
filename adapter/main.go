@@ -37,7 +37,7 @@ type SignozAdapter struct {
 	SignozAPIKey           string
 	SignozTimerangeMinutes int64
 	SignozMetrics          string
-	SignozLabelFilters     string
+	SignozFilterExpression string
 }
 
 func main() {
@@ -51,7 +51,7 @@ func main() {
 	cmd.Flags().StringVar(&cmd.SignozAPIKey, "signoz-api-key", "", "SigNoz API key for authentication")
 	cmd.Flags().Int64Var(&cmd.SignozTimerangeMinutes, "signoz-timerange-minutes", 5, "Time range in minutes to use for signoz queries")
 	cmd.Flags().StringVar(&cmd.SignozMetrics, "signoz-metrics", "", "Comma-separated list of metric names to expose")
-	cmd.Flags().StringVar(&cmd.SignozLabelFilters, "signoz-label-filters", "", "Comma-separated label filters appended to every query (e.g. deployment.environment=prod,service.name=myapp)")
+	cmd.Flags().StringVar(&cmd.SignozFilterExpression, "signoz-filter-expression", "", "Signoz filter expression e.g. `deployment.environment = 'dev'`")
 
 	logs.AddFlags(cmd.Flags())
 	if err := cmd.Flags().Parse(os.Args); err != nil {
@@ -87,24 +87,13 @@ func main() {
 		}
 	}
 
-	if cmd.SignozLabelFilters == "" {
-		cmd.SignozLabelFilters = os.Getenv("SIGNOZ_LABEL_FILTERS")
+	if cmd.SignozFilterExpression == "" {
+		cmd.SignozFilterExpression = os.Getenv("SIGNOZ_FILTER_EXPRESSION")
 	}
 
 	metricsSlice := strings.Split(cmd.SignozMetrics, ",")
 	for i := range metricsSlice {
 		metricsSlice[i] = strings.TrimSpace(metricsSlice[i])
-	}
-
-	labelFilters := map[string]string{}
-	if cmd.SignozLabelFilters != "" {
-		for _, pair := range strings.Split(cmd.SignozLabelFilters, ",") {
-			parts := strings.SplitN(strings.TrimSpace(pair), "=", 2)
-			if len(parts) != 2 {
-				klog.Fatalf("invalid label filter %q: expected key=value", pair)
-			}
-			labelFilters[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
-		}
 	}
 
 	dynClient, err := cmd.DynamicClient()
@@ -116,7 +105,7 @@ func main() {
 		klog.Fatalf("unable to construct REST mapper: %v", err)
 	}
 
-	provider := signozprov.NewSignozProvider(cmd.SignozEndpoint, cmd.SignozAPIKey, cmd.SignozTimerangeMinutes, metricsSlice, labelFilters, dynClient, mapper)
+	provider := signozprov.NewSignozProvider(cmd.SignozEndpoint, cmd.SignozAPIKey, cmd.SignozTimerangeMinutes, metricsSlice, cmd.SignozFilterExpression, dynClient, mapper)
 	cmd.WithCustomMetrics(provider)
 	cmd.WithExternalMetrics(provider)
 

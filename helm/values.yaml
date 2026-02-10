@@ -12,8 +12,7 @@ signoz:
     token: token
   timeRangeMinutes: 5
   metrics: ['phpfpm_active_processes']
-  labelFilters:
-    "deployment.environment": dev
+  filterExpression: "deployment.environment = 'dev'"
 
 serviceAccount:
   name: ""

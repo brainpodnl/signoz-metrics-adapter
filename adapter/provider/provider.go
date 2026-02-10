@@ -54,18 +54,18 @@ type signozProvider struct {
 	timeRangeMinutes int64
 	signoz           SignozClient
 	metrics          []string
-	labelFilters     map[string]string
+	filterExpression string
 }
 
 var _ provider.MetricsProvider = &signozProvider{}
 
-func NewSignozProvider(endpoint, apiKey string, timeRangeMinutes int64, metrics []string, labelFilters map[string]string, client dynamic.Interface, mapper apimeta.RESTMapper) provider.MetricsProvider {
+func NewSignozProvider(endpoint, apiKey string, timeRangeMinutes int64, metrics []string, filterExpression string, client dynamic.Interface, mapper apimeta.RESTMapper) provider.MetricsProvider {
 	return &signozProvider{
 		client:           client,
 		mapper:           mapper,
 		timeRangeMinutes: timeRangeMinutes,
 		metrics:          metrics,
-		labelFilters:     labelFilters,
+		filterExpression: filterExpression,
 		signoz: SignozClient{
 			Http:     http.Client{Timeout: 10 * time.Second},
 			Endpoint: endpoint,
@@ -84,35 +84,39 @@ func (p *signozProvider) isAllowedMetric(name string) bool {
 }
 
 func (p *signozProvider) buildQuery(metricName string) SignozQueryRangeOptions {
+	query := SignozQuery{
+		Type: "builder_query",
+		Spec: SignozQuerySpec{
+			Name:         "A",
+			Signal:       "metrics",
+			StepInterval: 60,
+			Aggregations: []SignozMetricAggregation{
+				{
+					MetricName:       metricName,
+					TimeAggregation:  "avg",
+					SpaceAggregation: "avg",
+				},
+			},
+			GroupBy: []SignozQueryGroupBy{
+				{
+					Name:          podLabelKey,
+					FieldDataType: "string",
+					FieldContext:  "resource",
+				},
+			},
+		},
+	}
+
+	if p.filterExpression != "" {
+		query.Spec.Filter = &SignozQueryFilter{Expression: p.filterExpression}
+	}
+
 	return SignozQueryRangeOptions{
 		RequestType: "time_series",
 		Start:       time.Now().Add(-time.Duration(p.timeRangeMinutes) * time.Minute).UnixMilli(),
 		End:         time.Now().UnixMilli(),
 		CompositeQuery: SignozCompositeQuery{
-			Queries: []SignozQuery{
-				{
-					Type: "builder_query",
-					Spec: SignozQuerySpec{
-						Name:         "A",
-						Signal:       "metrics",
-						StepInterval: 60,
-						Aggregations: []SignozMetricAggregation{
-							{
-								MetricName:       metricName,
-								TimeAggregation:  "avg",
-								SpaceAggregation: "avg",
-							},
-						},
-						GroupBy: []SignozQueryGroupBy{
-							{
-								Name:          podLabelKey,
-								FieldDataType: "string",
-								FieldContext:   "resource",
-							},
-						},
-					},
-				},
-			},
+			Queries: []SignozQuery{query},
 		},
 	}
 }
