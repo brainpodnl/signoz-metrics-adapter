@@ -57,7 +57,7 @@
           adapter
           pkgs.dockerTools.caCertificates
         ];
-        config.Cmd = ["/bin/${adapter.pname}"];
+        config.Cmd = ["/bin/adapter"];
       };
     });
   };

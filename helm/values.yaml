@@ -1,19 +1,19 @@
 replicas: 1
 
+verbosity: 2
+
 imagePullSecrets:
   - name: github-registry
 
 signoz:
-  timeRangeMinutes: 5
-  metrics:
-    - phpfpm_active_processes
-  labelFilters: {}
   existingSecret: "signoz-credentials"
   secretKeys:
     url: url
     token: token
-
-verbosity: 2
+  timeRangeMinutes: 5
+  metrics: ['phpfpm_active_processes']
+  labelFilters:
+    "deployment.environment": dev
 
 serviceAccount:
   name: ""

@@ -20,7 +20,7 @@ spec:
           image: {{ $.Values.steiger.adapter.image }}
           imagePullPolicy: IfNotPresent
           args:
-            - /bin/signoz-metrics-adapter
+            - /bin/adapter
             - --secure-port=6443
             - --v={{ default 2 .Values.verbosity }}
             - --cert-dir=/var/run/serving-cert
@@ -30,7 +30,7 @@ spec:
                 secretKeyRef:
                   name: {{ include "signoz-metrics-adapter.secretName" . }}
                   key: {{ .Values.signoz.secretKeys.url }}
-            - name: SIGNOZ_TOKEN
+            - name: SIGNOZ_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ include "signoz-metrics-adapter.secretName" . }}

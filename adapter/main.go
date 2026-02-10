@@ -26,9 +26,9 @@ import (
 	"k8s.io/component-base/metrics/legacyregistry"
 	"k8s.io/klog/v2"
 
+	signozprov "github.com/brainpodnl/signoz-metrics-adapter/adapter/provider"
 	"github.com/brainpodnl/signoz-metrics-adapter/pkg/apiserver/metrics"
 	basecmd "github.com/brainpodnl/signoz-metrics-adapter/pkg/cmd"
-	signozprov "github.com/brainpodnl/signoz-metrics-adapter/adapter/provider"
 )
 
 type SignozAdapter struct {
@@ -66,9 +66,9 @@ func main() {
 	}
 
 	if cmd.SignozAPIKey == "" {
-		cmd.SignozAPIKey = os.Getenv("SIGNOZ_TOKEN")
+		cmd.SignozAPIKey = os.Getenv("SIGNOZ_API_KEY")
 		if cmd.SignozAPIKey == "" {
-			klog.Fatal("--signoz-api-key or SIGNOZ_TOKEN is required")
+			klog.Fatal("--signoz-api-key or SIGNOZ_API_KEY is required")
 		}
 	}
 
