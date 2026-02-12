@@ -62,6 +62,10 @@ steiger run --repo ghcr.io/<your-org>
 This builds the adapter image, pushes it to the registry, and deploys the Helm
 chart using the configuration in `steiger.yml`.
 
+## Origin
+
+This project was forked from [kubernetes-sigs/custom-metrics-apiserver](https://github.com/kubernetes-sigs/custom-metrics-apiserver).
+
 ## License
 
 Apache License 2.0
