@@ -16,7 +16,7 @@
   }: let
     inherit (nixpkgs) lib;
 
-    overlays = [steiger.overlays.ociTools];
+    overlays = [steiger.overlays.ociTools (import ./nix/cacert-overlay.nix)];
     forAllSystems = fun:
       lib.genAttrs (import systems) (system:
         fun (import nixpkgs {
@@ -31,6 +31,12 @@
           pkgs.golangci-lint
           steiger.packages.${pkgs.stdenv.hostPlatform.system}.default
         ];
+      };
+    });
+
+    checks = forAllSystems (pkgs: {
+      ca-distrust = pkgs.callPackage ./nix/check-ca-trust.nix {
+        originalCacert = (import nixpkgs {system = pkgs.stdenv.hostPlatform.system;}).cacert;
       };
     });
 
@@ -62,3 +68,4 @@
     });
   };
 }
+
